@@ -356,8 +356,67 @@
 
     /* Mobile Responsive adjustments */
     @media (max-width: 900px) {
+      header {
+        padding: 8px 12px;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+      }
+      .header-tabs {
+        width: 100%;
+        overflow-x: auto;
+        padding-bottom: 2px;
+      }
+      .tab-btn {
+        padding: 5px 10px;
+        font-size: 11px;
+        white-space: nowrap;
+      }
       .main-container { flex-direction: column; }
-      .control-panel { width: 100%; height: 260px; }
+      #viewport-container {
+        height: 380px;
+        min-height: 380px;
+        flex: none;
+      }
+      .control-panel {
+        width: 100%;
+        height: auto;
+        flex: 1;
+      }
+
+      /* Compact tools positioned in top-right without overlapping */
+      .viewport-tools {
+        top: 8px;
+        right: 8px;
+        gap: 4px;
+        z-index: 10;
+      }
+      .tool-btn {
+        padding: 4px 8px;
+        font-size: 10px;
+      }
+
+      /* CRITICAL FIX: On mobile, move direction banner to bottom of 3D viewport */
+      /* This ensures ZERO OVERLAP with the 3D figure, North pole, and tools! */
+      .direction-banner {
+        top: auto;
+        bottom: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 92%;
+        max-width: 390px;
+        padding: 6px 12px;
+        border-radius: 8px;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.7), 0 0 10px rgba(6, 182, 212, 0.3);
+      }
+      .direction-banner h3 {
+        font-size: 9.5px;
+        letter-spacing: 0.5px;
+      }
+      .direction-banner p {
+        font-size: 11px;
+        margin-top: 2px;
+      }
     }
   </style>
 </head>
@@ -826,46 +885,83 @@
       const lines = [];
 
       if (state.conductor === 'wire') {
-        // Concentric circles in XY plane
-        [0.05, 0.09, 0.14].forEach(r => {
-          [-L*0.25, 0, L*0.25].forEach(z => {
+        // Concentric circles in XY plane: 2 spacious clean circles in central plane
+        [0.08, 0.16].forEach(r => {
+          [0].forEach(z => {
             const pts = [];
-            for(let i = 0; i <= 40; i++) {
-              const phi = dirSign * (i / 40) * 2 * Math.PI;
+            for(let i = 0; i <= 48; i++) {
+              const phi = dirSign * (i / 48) * 2 * Math.PI;
               pts.push(new THREE.Vector3(r * Math.cos(phi), r * Math.sin(phi), z));
             }
             lines.push(pts);
           });
         });
       } else if (state.conductor === 'loop') {
-        // Flux loops through center
-        [R * 0.45, R * 0.8, R * 1.2].forEach(r0 => {
-          [0, Math.PI/2, Math.PI, 3*Math.PI/2].forEach(az => {
-            const pts = [];
-            for(let i = 0; i <= 48; i++) {
-              const t = dirSign * (i / 48) * 2 * Math.PI;
-              const localR = Math.max(R - r0 * Math.cos(t), 0.005);
-              const localZ = r0 * Math.sin(t);
-              pts.push(new THREE.Vector3(localR * Math.cos(az), localR * Math.sin(az), localZ));
-            }
-            lines.push(pts);
-          });
+        // Symmetrical dipole loops threading through the inside of the ring and closing outside
+        // Clean, spacious, and textbook-accurate: 4 loops with generous clearance from the wire
+        const rIn = R * 0.38;
+        const rOut = R * 1.72;
+        const rMid = (rIn + rOut) * 0.5;
+        const a = (rOut - rIn) * 0.5;
+        const b = a * 1.18;
+
+        [0, Math.PI/2].forEach(cutAngle => {
+          const cosA = Math.cos(cutAngle);
+          const sinA = Math.sin(cutAngle);
+
+          // Side 1: Positive lobe
+          const pts1 = [];
+          for(let i = 0; i <= 48; i++) {
+            const t = dirSign * (i / 48) * 2 * Math.PI;
+            const localR = rMid - a * Math.cos(t);
+            const localZ = b * Math.sin(t);
+            pts1.push(new THREE.Vector3(localR * cosA, localR * sinA, localZ));
+          }
+          lines.push(pts1);
+
+          // Side 2: Negative lobe
+          const pts2 = [];
+          for(let i = 0; i <= 48; i++) {
+            const t = dirSign * (i / 48) * 2 * Math.PI;
+            const localR = -(rMid - a * Math.cos(t));
+            const localZ = b * Math.sin(t);
+            pts2.push(new THREE.Vector3(localR * cosA, localR * sinA, localZ));
+          }
+          lines.push(pts2);
         });
       } else if (state.conductor === 'solenoid' || state.conductor === 'helmholtz') {
-        [0.005, R * 0.45, R * 0.8].forEach(rCore => {
-          [0, Math.PI/2, Math.PI, 3*Math.PI/2].forEach(az => {
-            const pts = [];
-            for(let i = 0; i <= 48; i++) {
-              const t = dirSign * (i / 48) * 2 * Math.PI;
-              const localR = Math.max(R * (1.1 + 0.8 * (1 - Math.cos(t))) * 0.5 + rCore, 0.005);
-              const localZ = (L * 0.65) * Math.sin(t);
-              pts.push(new THREE.Vector3(localR * Math.cos(az), localR * Math.sin(az), localZ));
-            }
-            lines.push(pts);
-          });
+        // Symmetrical axial flux threading inside core and looping back outside
+        const rIn = R * 0.38;
+        const rOut = R * 1.75;
+        const rMid = (rIn + rOut) * 0.5;
+        const capR = (rOut - rIn) * 0.5;
+        const halfL = Math.max(L * 0.5, R * 0.8);
+
+        [0, Math.PI/2].forEach(cutAngle => {
+          const cosA = Math.cos(cutAngle);
+          const sinA = Math.sin(cutAngle);
+
+          const pts1 = [];
+          for(let i = 0; i <= 48; i++) {
+            const t = dirSign * (i / 48) * 2 * Math.PI;
+            const localR = rMid - capR * Math.cos(t);
+            const localZ = halfL * Math.sin(t) + capR * Math.sin(t) * 0.35;
+            pts1.push(new THREE.Vector3(localR * cosA, localR * sinA, localZ));
+          }
+          lines.push(pts1);
+
+          const pts2 = [];
+          for(let i = 0; i <= 48; i++) {
+            const t = dirSign * (i / 48) * 2 * Math.PI;
+            const localR = -(rMid - capR * Math.cos(t));
+            const localZ = halfL * Math.sin(t) + capR * Math.sin(t) * 0.35;
+            pts2.push(new THREE.Vector3(localR * cosA, localR * sinA, localZ));
+          }
+          lines.push(pts2);
         });
       } else if (state.conductor === 'toroid') {
-        [R - 0.015, R, R + 0.015].forEach(rCore => {
+        // Confined core magnetic flux: 2 clean loops
+        [R - 0.012, R + 0.012].forEach(rCore => {
           const pts = [];
           for(let i = 0; i <= 48; i++) {
             const phi = dirSign * (i / 48) * 2 * Math.PI;
@@ -882,16 +978,14 @@
         const lineObj = new THREE.Line(geom, lineMat);
         streamlinesGroup.add(lineObj);
 
-        // Add 2 distinct direction arrow cones along curve
-        for(let k = 1; k < 3; k++) {
-          const idx = Math.floor((k / 3) * pts.length);
-          if (idx < pts.length - 1) {
-            const p1 = pts[idx];
-            const p2 = pts[idx + 1];
-            const dir = p2.clone().sub(p1).normalize();
-            const arrow = new THREE.ArrowHelper(dir, p1, 0.018, 0x22d3ee, 0.012, 0.007);
-            streamlinesGroup.add(arrow);
-          }
+        // Add 1 single clear, elegant direction arrow per streamline (never crowded!)
+        const idx = Math.floor(pts.length * 0.25);
+        if (idx < pts.length - 1) {
+          const p1 = pts[idx];
+          const p2 = pts[idx + 1];
+          const dir = p2.clone().sub(p1).normalize();
+          const arrow = new THREE.ArrowHelper(dir, p1, 0.018, 0x22d3ee, 0.012, 0.006);
+          streamlinesGroup.add(arrow);
         }
       });
     }
